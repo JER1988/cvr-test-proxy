@@ -1,58 +1,50 @@
-const express = require("express");
-const fetch = require("node-fetch");
-const app = express();
+import express from "express";
+import fetch from "node-fetch";
 
+const app = express();
 app.use(express.json());
 
-const ES_URL = "https://distribution.virk.dk/cvr-permanent/virksomhed/_search";
+const port = process.env.PORT || 3000;
+
+app.post("/cvr", async (req, res) => {
+  try {
+    const { cvr } = req.body;
+
+    const url = "https://distribution.virk.dk/cvr-permanent/virksomhed/_search";
+
+    const body = {
+      query: {
+        bool: {
+          must: [
+            { term: { "Vrvirksomhed.cvrNummer": cvr } }
+          ]
+        }
+      }
+    };
+
+    const auth = Buffer.from(
+      process.env.CVR_USER + ":" + process.env.CVR_PASS
+    ).toString("base64");
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": "Basic " + auth,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await response.text();
+    res.status(200).send(data);
+
+  } catch (err) {
+    res.status(500).json({ error: "Proxy fejl", detail: err.message });
+  }
+});
 
 app.get("/", (req, res) => {
-  res.send("CVR test-proxy kører ✅");
+  res.send("CVR proxy kører 🎉");
 });
 
-app.get("/test", async (req, res) => {
-  const cvr = req.query.cvr || "10150817";
-  const body = {
-    query: {
-      bool: {
-        must: [
-          { term: { "Vrvirksomhed.cvrNummer": cvr } }
-        ]
-      }
-    }
-  };
-
-  const user = process.env.CVR_USER || "";
-  const pass = process.env.CVR_PASS || "";
-
-  const headers = {
-    "Content-Type": "application/json"
-  };
-
-  if (user && pass) {
-    const auth = Buffer.from(`${user}:${pass}`).toString("base64");
-    headers["Authorization"] = `Basic ${auth}`;
-  }
-
-  try {
-    const r = await fetch(ES_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      timeout: 20000
-    });
-
-    const text = await r.text();
-    res.status(200).json({
-      status: r.status,
-      ok: r.ok,
-      bodyPreview: text.substring(0, 300),
-      raw: text
-    });
-  } catch (e) {
-    res.status(502).json({ error: "FETCH_FAILED", detail: e.message });
-  }
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server kører på port ${port}`));
+app.listen(port, () => console.log("Server kører på port", port));
