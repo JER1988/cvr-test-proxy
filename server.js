@@ -1,10 +1,9 @@
 const express = require("express");
-const fetch = require("node-fetch");
-const app = express();
 
+const app = express();
 app.use(express.json());
 
-// Test route - for at se om serveren virker
+// Test route
 app.get("/test", (req, res) => {
   res.json({ message: "Koyeb CVR proxy kører ✔️" });
 });
@@ -17,10 +16,8 @@ app.get("/search", async (req, res) => {
     return res.status(400).json({ error: "Mangler cvr parameter" });
   }
 
-  // CVR permanent API-url
   const url = "https://distribution.virk.dk/cvr-permanent/virksomhed/_search";
 
-  // Hent credentials fra miljøvariabler
   const user = process.env.CVR_USER;
   const pass = process.env.CVR_PASS;
 
@@ -37,6 +34,7 @@ app.get("/search", async (req, res) => {
   };
 
   try {
+    // Node 18+ har indbygget fetch ✔
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -46,13 +44,8 @@ app.get("/search", async (req, res) => {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
-
-    return res.json({
-      ok: response.ok,
-      status: response.status,
-      data: data
-    });
+    const text = await response.text();
+    res.send(text);
 
   } catch (err) {
     return res.status(500).json({
@@ -62,7 +55,6 @@ app.get("/search", async (req, res) => {
   }
 });
 
-// Port fra Koyeb
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("CVR proxy kører på port " + PORT);
