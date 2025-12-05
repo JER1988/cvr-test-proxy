@@ -1,51 +1,69 @@
-const express = require('express');
-
+const express = require("express");
+const fetch = require("node-fetch");
 const app = express();
+
 app.use(express.json());
 
-const port = process.env.PORT || 3000;
+// Test route - for at se om serveren virker
+app.get("/test", (req, res) => {
+  res.json({ message: "Koyeb CVR proxy kører ✔️" });
+});
 
-app.post('/cvr', async (req, res) => {
-  try {
-    const { cvr } = req.body;
-    if (!cvr) return res.status(400).json({ error: "Missing cvr in body" });
+// CVR søgning
+app.get("/search", async (req, res) => {
+  const cvr = req.query.cvr;
 
-    const url = 'https://distribution.virk.dk/cvr-permanent/virksomhed/_search';
+  if (!cvr) {
+    return res.status(400).json({ error: "Mangler cvr parameter" });
+  }
 
-    const body = {
-      query: {
-        bool: {
-          must: [
-            { term: { "Vrvirksomhed.cvrNummer": cvr } }
-          ]
-        }
+  // CVR permanent API-url
+  const url = "https://distribution.virk.dk/cvr-permanent/virksomhed/_search";
+
+  // Hent credentials fra miljøvariabler
+  const user = process.env.CVR_USER;
+  const pass = process.env.CVR_PASS;
+
+  const authHeader = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
+
+  const body = {
+    query: {
+      bool: {
+        must: [
+          { term: { "Vrvirksomhed.cvrNummer": cvr } }
+        ]
       }
-    };
+    }
+  };
 
-    const user = process.env.CVR_USER || '';
-    const pass = process.env.CVR_PASS || '';
-    const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-
+  try {
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': 'Basic ' + auth,
-        'Content-Type': 'application/json'
+        "Authorization": authHeader,
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     });
 
-    const text = await response.text();
-    // Forward status from upstream if you want; keep it simple:
-    res.status(200).send(text);
+    const data = await response.json();
+
+    return res.json({
+      ok: response.ok,
+      status: response.status,
+      data: data
+    });
+
   } catch (err) {
-    console.error('Proxy error', err);
-    res.status(500).json({ error: 'Proxy fejl', detail: err.message });
+    return res.status(500).json({
+      error: "Serverfejl",
+      details: err.message
+    });
   }
 });
 
-app.get('/', (req, res) => {
-  res.send('CVR proxy kører 🎉');
+// Port fra Koyeb
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("CVR proxy kører på port " + PORT);
 });
-
-app.listen(port, () => console.log(`Server kører på port ${port}`));
