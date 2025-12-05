@@ -1,89 +1,70 @@
 const express = require("express");
+const bodyParser = require("body-parser");
+const fetch = require("node-fetch");
+
 const app = express();
+app.use(bodyParser.json());
 
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
 
-// Root / homepage
-app.get("/", (req, res) => {
-  res.send("CVR proxy kører 🎉");
-});
+// ENV variables fra Koyeb
+const ES_ENDPOINT = process.env.ES_ENDPOINT || "http://distribution.virk.dk/cvr-permanent/virksomhed/_search";
+const CVR_USER = process.env.CVR_USER;
+const CVR_PASS = process.env.CVR_PASS;
 
-// Test route
-app.get("/test", (req, res) => {
-  res.json({ message: "Koyeb CVR proxy kører ✔️" });
-});
+function authHeader() {
+  if (!CVR_USER || !CVR_PASS) return {};
+  const token = Buffer.from(`${CVR_USER}:${CVR_PASS}`).toString("base64");
+  return { "Authorization": `Basic ${token}` };
+}
 
-// Diagnostic route: Test if Koyeb can reach CVR API server
-app.get("/ping-cvr", async (req, res) => {
-  try {
-    const result = await fetch("https://distribution.virk.dk/cvr-permanent/");
-    return res.json({
-      ok: true,
-      status: result.status,
-      message: "CVR server reachable ✔️"
-    });
-  } catch (err) {
-    return res.json({
-      ok: false,
-      error: err.message,
-      message: "CVR API kan ikke nås fra denne server ❌"
-    });
+// Health check
+app.get("/_health", (req, res) => res.json({ ok: true, message: "CVR proxy kører" }));
+
+// CVR endpoint
+app.get("/cvr", async (req, res) => {
+  const cvr = (req.query.nummer || "").replace(/\D/g, "");
+
+  if (!cvr || cvr.length !== 8) {
+    return res.status(400).json({ error: "Ugyldigt CVR-nummer" });
   }
-});
-
-// Main CVR search route
-app.get("/search", async (req, res) => {
-  const cvr = req.query.cvr;
-
-  if (!cvr) {
-    return res.status(400).json({ error: "Mangler cvr parameter" });
-  }
-
-  const url = "https://distribution.virk.dk/cvr-permanent/virksomhed/_search";
-
-  const user = process.env.CVR_USER;
-  const pass = process.env.CVR_PASS;
-
-  if (!user || !pass) {
-    return res.status(500).json({ error: "CVR login ikke sat i miljøvariabler" });
-  }
-
-  const authHeader = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
 
   const body = {
     query: {
       bool: {
         must: [
-          { term: { "Vrvirksomhed.cvrNummer": Number(cvr) } }
+          { term: { "Vrvirksomhed.cvrNummer": cvr } }
         ]
       }
     }
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(ES_ENDPOINT, {
       method: "POST",
       headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...authHeader()
       },
       body: JSON.stringify(body)
     });
 
     const text = await response.text();
+    let data;
 
-    return res.status(response.status).send(text);
+    try { data = JSON.parse(text); }
+    catch { data = text; }
+
+    res.json({
+      status: response.status,
+      ok: response.ok,
+      data
+    });
 
   } catch (err) {
-    return res.status(500).json({
-      error: "Serverfejl",
-      details: err.message
-    });
+    res.status(500).json({ error: "FETCH_FAILED", detail: err.message });
   }
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("CVR proxy kører på port " + PORT);
-});
+app.listen(PORT, () => console.log(`CVR proxy kører på port ${PORT}`));
